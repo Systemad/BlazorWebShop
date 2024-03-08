@@ -1,0 +1,65 @@
+﻿@using Web.Client.Models
+
+@if (Product is not null)
+{
+    <div class="card border-0 shadow mb-4" style="height: 400px;">
+        <img src="@Product.Thumbnail" class="card-img-top object-fit-cover h-50" alt="...">
+        <div class="card-body w-100">
+            <div class="row">
+                <div class="col-12">
+                    <h4 class="card-title">@Product.Title</h4>
+                    @if (Product.SoldOut)
+                    {
+                        <div>
+                            <span class="badge rounded-pill text-bg-danger">Sold out</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div>
+                            Product Quantity:
+                            @if (Product.SoldOut)
+                            {
+                                <span class="badge rounded-pill bg-danger">SOLD OUT</span>
+                            }
+                            else
+                            {
+                                <span class="badge rounded-pill bg-success">@Product.Stock</span>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="card-footer row align-items-center text-center g-0 overflow-hidden">
+            <div class="col-4">
+                <button class="btn btn-outline-secondary" @onclick="RemoveFromCart">-</button>
+            </div>
+            <div class="col-4">
+                <h5>@ProductCartQuantity</h5>
+            </div>
+            <div class="col-4">
+                <button class="btn btn-outline-secondary" @onclick="AddToCart">+</button>
+            </div>
+            <div class="col-12 mt-2"/>
+            <div class="col-6">
+                <h5>@Currency @ExchangeRateHelper.ConvertPrice(Product.Price, Rate ?? 1m)</h5>
+            </div>
+            <div class="col-6">
+                <button @onclick="NavigateToProduct" class="btn btn-primary btn-small w-100 h-50 p-2 mt-2">View product</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Product? Product { get; set; }
+    [Parameter] public int ProductCartQuantity { get; set; }
+
+    [Parameter] public CurrencyEnum? Currency { get; set; }
+    [Parameter] public decimal? Rate { get; set; }
+    
+    [Parameter] public EventCallback AddToCart { get; set; }
+    [Parameter] public EventCallback RemoveFromCart { get; set; }
+    [Parameter] public EventCallback NavigateToProduct { get; set; }
+}

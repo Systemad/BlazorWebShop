@@ -1,0 +1,154 @@
+﻿@page "/product/{id:int}"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Web.Client.Models
+@using Web.Services
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+
+@attribute [Authorize]
+
+@rendermode InteractiveServer
+@attribute [StreamRendering]
+
+@if (Product is not null)
+{
+    <div class="container pb-5">
+        <div class="row">
+            <div class="col-lg-5 mt-5">
+                <div class="card mb-3">
+                    <img class="card-img img-fluid" src="@Product.Thumbnail" alt="Card image cap" id="product-detail">
+                </div>
+            </div>
+            <div class="col-lg-7 mt-5">
+                <div class="card">
+                    <div class="card-body">
+                        <h2 >@Product.Title</h2>
+                        <h3 class="py-2">@CurrentCurrency @ExchangeRateHelper.ConvertPrice(Product.Price, CurrentExchangeRate)</h3>
+                        <h5 class="py-2">
+                            Product Quantity:
+                            @if (Product.SoldOut)
+                            {
+                                <span class="text-danger">SOLD OUT</span>
+                            }
+                            else
+                            {
+                                @Product.Stock
+                            }
+                        </h5>
+                        <h5>Description:</h5>
+                        <p class="h6">@Product.Description</p>
+                            <div class="row">
+                                <div class="col-auto">
+                                    <ul class="list-inline pb-3">
+                                        <li class="list-inline-item">
+                                            <button class="btn btn-success" @onclick="RemoveCartItem">-</button>
+                                        </li>
+                                        <li class="list-inline-item">
+                                            <p>@currentQuantity</p>
+                                        </li>
+                                        <li class="list-inline-item">
+                                            <button class="btn btn-success" @onclick="AddCartItem">+</button>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class="row pb-3">
+                                <div class="col d-grid">
+                                    <button disabled="@Product.SoldOut" @onclick="AddCartItem" class="btn btn-success btn-lg">
+                                        @(Product.SoldOut ? "Sold out" : "Add to cart")
+                                    </button>
+                                </div>
+                            </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+@inject ProtectedLocalStorage ProtectedLocalStorage
+
+@inject ProductService ProductService
+@inject ShoppingCartService ShoppingCartService
+@inject UserService UserService
+
+@code {
+    [Parameter] public int? Id { get; set; }
+    
+    private Product? Product;
+    int currentQuantity;
+
+    private ApplicationUser? user;
+    private AuthenticationState? authenticationState;
+
+    private ShoppingCart ShoppingCart;
+
+    protected override async Task OnInitializedAsync()
+    {
+        authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var stateUser = await UserManager.GetUserAsync(authenticationState.User);
+        user = await UserService.GetApplicationUser(stateUser);
+        
+        if (Id is not null)
+        {
+            var cart = await ShoppingCartService.GetShoppingCart(user);
+            ShoppingCart = cart;
+            await base.OnInitializedAsync();
+            
+            Product = await ProductService.GetProductFromId(Id.Value);
+            var cartItem = ShoppingCart.Items.FirstOrDefault(x => x.ProductId == Id);
+            if (cartItem is not null)
+            {
+                currentQuantity = cartItem.Quantity;
+            }
+        }
+
+        await base.OnInitializedAsync();
+    }
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadState();
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task AddCartItem()
+    {
+        if (Product is not null)
+        {
+            var updatedCart = await ShoppingCartService.AddCartItem(user, Product.Id);
+            ShoppingCart = updatedCart;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task RemoveCartItem()
+    {
+        if (Product is not null)
+        {
+            var updatedCart = await ShoppingCartService.RemoveCartItem(user, Product.Id);
+            ShoppingCart = updatedCart;
+            StateHasChanged();
+        }
+    }
+    
+    private CurrencyEnum CurrentCurrency { get; set; } = CurrencyEnum.USD;
+    private decimal CurrentExchangeRate { get; set; } = 1;
+
+    private async Task LoadState()
+    {
+        var result = await ProtectedLocalStorage.GetAsync<CurrencyEnum>("currency");
+        CurrentCurrency = result.Value;
+        
+        var rate = await ProtectedLocalStorage.GetAsync<decimal>("rate");
+        CurrentExchangeRate = rate.Value;
+        StateHasChanged();
+    }
+}

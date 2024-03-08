@@ -1,0 +1,172 @@
+﻿@page "/"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+@using Microsoft.AspNetCore.Identity
+@using Web.Client.Models
+@using Web.Services
+
+@attribute [Authorize]
+@rendermode InteractiveServer
+@attribute [StreamRendering]
+
+<h3>Products</h3>
+
+<div class="container">
+    @if (loading)
+    {
+        <p>loading</p>
+    }
+    else
+    {
+        @if (CurrentCurrency.HasValue)
+        {
+            <div class="dropdown">
+                <button class="btn btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    @CurrentCurrency
+                </button>
+                <ul class="dropdown-menu">
+                    <li>
+                        <a class="dropdown-item" @onclick="() => ChangeCurrency(CurrencyEnum.USD)">USD</a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" @onclick="() => ChangeCurrency(CurrencyEnum.EUR)">EUR</a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" @onclick="() => ChangeCurrency(CurrencyEnum.GBP)">GBP</a>
+                    </li>
+                </ul>
+            </div>
+        }
+        
+        if (Products is not null && Products.Count > 0)
+        {
+            <div class="row">
+
+                @foreach (var item in Products)
+                {
+                    <div class="col-sm-4">
+                        <ProductOverview
+                            Product="@item"
+                            ProductCartQuantity="@GetProductQuantityInCart(item.Id)"
+                            Currency="CurrentCurrency"
+                            Rate="CurrentExchangeRate"
+                            AddToCart="() => AddToCart(item.Id)"
+                            RemoveFromCart="() => RemoveItemFromCart(item.Id)"
+                            NavigateToProduct="() => NavigateToProduct(item.Id)"/>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+
+@inject NavigationManager NavigationManager
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject ProductService ProductService
+@inject ShoppingCartService ShoppingCartService
+@inject UserService UserService
+
+@inject ProtectedLocalStorage ProtectedLocalStorage
+@inject ApiService Api
+
+@code {
+    
+    private bool loading = true;
+    private List<Product>? Products { get; set; } = new();
+
+    private ApplicationUser? user;
+    private AuthenticationState? authenticationState;
+
+    private ShoppingCart ShoppingCart = new();
+
+    private CurrencyEnum? CurrentCurrency;
+    private decimal? CurrentExchangeRate;
+    
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            var result = await ProtectedLocalStorage.GetAsync<CurrencyEnum>("currency");
+            if (result.Success)
+            {
+                CurrentCurrency = result.Value;
+            }
+            else
+            {
+                await ProtectedLocalStorage.SetAsync("currency", CurrencyEnum.USD);
+            }
+
+            if (CurrentCurrency.HasValue)
+            {
+                var currentExchangeRate = await Api.GetExchangeRate(CurrentCurrency.Value);
+                await ProtectedLocalStorage.SetAsync("rate", currentExchangeRate.ExchangeRate);
+                CurrentExchangeRate = currentExchangeRate.ExchangeRate;
+            }
+            StateHasChanged();
+
+        }
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    // den vill inte uppdatera, så man måste manuellt ladda om sidan
+    private async Task ChangeCurrency(CurrencyEnum currencyEnum)
+    {
+        await ProtectedLocalStorage.SetAsync("currency", currencyEnum);
+        StateHasChanged();
+    }
+    
+    protected override async Task OnInitializedAsync()
+    {
+        authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var stateUser = await UserManager.GetUserAsync(authenticationState.User);
+        user = await UserService.GetApplicationUser(stateUser);
+
+        var cart = await ShoppingCartService.GetShoppingCart(user);
+        ShoppingCart = cart;
+
+        Products = await ProductService.GetProducts();
+        loading = false;
+        await base.OnInitializedAsync();
+    }
+
+    public async Task AddToCart(int productId)
+    {
+        if (user is not null)
+        {
+            var updatedCart = await ShoppingCartService.AddCartItem(user, productId);
+            ShoppingCart = updatedCart;
+            StateHasChanged();
+
+        }
+    }
+
+    public async Task RemoveItemFromCart(int productId)
+    {
+        if (user is not null)
+        {
+            var updatedCart = await ShoppingCartService.RemoveCartItem(user, productId);
+            ShoppingCart = updatedCart;
+            StateHasChanged();
+        }
+    }
+
+    private void NavigateToProduct(int productId)
+    {
+        NavigationManager.NavigateTo($"product/{productId.ToString()}");
+    }
+
+    private int GetProductQuantityInCart(int productId)
+    {
+        if (ShoppingCart is not null)
+        {
+            var orderItem = ShoppingCart.Items.FirstOrDefault(item => item.Product.Id == productId);
+            if (orderItem is not null)
+            {
+                return orderItem?.Quantity ?? 0;
+            }
+        }
+        return 0;
+    }
+}

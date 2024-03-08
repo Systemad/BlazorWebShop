@@ -1,0 +1,180 @@
+﻿@page "/cart"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Web.Services
+@using Web.Client.Models
+@using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
+
+
+@attribute [Authorize]
+@rendermode InteractiveServer
+@attribute [StreamRendering]
+
+@if (_orderSuccessful is true)
+{
+    <h3>Your order @_successOrder.Id is successful</h3>
+    <p>Navigate to your order</p>
+    <button @onclick="NavigateToOrder">View order!</button>
+}
+
+@if (_orderSuccessful is null)
+{
+    @if (_shoppingCart.Items.Count > 0)
+    {
+        <div class="row">
+            <div class="col-md-8 order-md-1 mb-4">
+                <h4 class="d-flex justify-content-between align-items-center mb-3">
+                    <span class="text-muted">Your cart</span>
+                    <span class="badge badge-secondary badge-pill">3</span>
+                </h4>
+                <ul class="list-group mb-3">
+                    @foreach (var item in _shoppingCart.Items)
+                    {
+                        <CartProductCard Item="item" Rate="CurrentExchangeRate" CurrentCurrency="CurrentCurrency"
+                                         AddToCart="() => AddToCart(item.ProductId)" RemoveFromCart="() => RemoveItemFromCart(item.ProductId)"/>
+                    }
+
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span>Total @CurrentCurrency</span>
+                        <strong>@CurrentCurrency @ExchangeRateHelper.ConvertPrice(_shoppingCart.TotalCost, CurrentExchangeRate)</strong>
+                    </li>
+                </ul>
+            </div>
+            <div class="col-md-4 order-md-2">
+                <h4 class="mb-3">Order information</h4>
+                <EditForm Model="OrderForm" OnValidSubmit="HandleSubmit" FormName="OrderForm">
+                    <DataAnnotationsValidator/>
+                    <ValidationSummary/>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label>
+                                First name
+                                <InputText @bind-Value="@OrderForm!.FirstName"/>
+                            </label>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label>
+                                Last name
+                                <InputText @bind-Value="@OrderForm!.LastName"/>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label>
+                            Email
+                            <InputText @bind-Value="@OrderForm!.Email"/>
+                        </label>
+                    </div>
+
+                    <div class="mb-3">
+                        <label>
+                            Address
+                            <InputText @bind-Value="@OrderForm.Address"/>
+                        </label>
+                    </div>
+                    <div>
+                        <button type="submit" class="btn btn-primary w-100">Place order!</button>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+    }
+}
+
+@inject NavigationManager NavigationManager
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+@inject ShoppingCartService ShoppingCartService
+@inject OrderService OrderService
+@inject UserService UserService
+
+@inject ProtectedLocalStorage ProtectedLocalStorage
+
+@code {
+    private CurrencyEnum CurrentCurrency { get; set; }
+    private decimal CurrentExchangeRate { get; set; }
+
+    [SupplyParameterFromForm] public OrderForm? OrderForm { get; set; }
+
+    private ApplicationUser? user;
+    private AuthenticationState? authenticationState;
+
+    protected override void OnInitialized() => OrderForm ??= new();
+
+    private ShoppingCart _shoppingCart = new();
+
+    private bool? _orderSuccessful;
+    private Order _successOrder = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var stateUser = await UserManager.GetUserAsync(authenticationState.User);
+        user = await UserService.GetApplicationUser(stateUser);
+
+        var cart = await ShoppingCartService.GetShoppingCart(user);
+        _shoppingCart = cart;
+        await base.OnInitializedAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await InitCurrency();
+            StateHasChanged();
+        }
+
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    private async Task AddToCart(int productId)
+    {
+        var updatedCart = await ShoppingCartService.AddCartItem(user, productId);
+        _shoppingCart = updatedCart;
+        StateHasChanged();
+    }
+
+    private async Task RemoveItemFromCart(int productId)
+    {
+        var updatedCart = await ShoppingCartService.RemoveCartItem(user, productId);
+        _shoppingCart = updatedCart;
+        StateHasChanged();
+    }
+
+    async Task HandleSubmit()
+    {
+        if (OrderForm is not null)
+        {
+            try
+            {
+                var completeOrder = await OrderService.CreateOrder(user, _shoppingCart, OrderForm);
+                _successOrder = completeOrder;
+                _orderSuccessful = true;
+                await ShoppingCartService.ResetCart(user);
+            }
+            catch (Exception e)
+            {
+                _orderSuccessful = false;
+                throw;
+            }
+        }
+    }
+
+    private async Task InitCurrency()
+    {
+        var result = await ProtectedLocalStorage.GetAsync<CurrencyEnum>("currency");
+        CurrentCurrency = result.Value;
+
+        var rate = await ProtectedLocalStorage.GetAsync<decimal>("rate");
+        CurrentExchangeRate = rate.Value;
+    }
+
+    void NavigateToOrder()
+    {
+        NavigationManager.NavigateTo($"order/{_successOrder.Id}");
+    }
+
+}

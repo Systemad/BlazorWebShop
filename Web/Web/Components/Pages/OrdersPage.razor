@@ -1,0 +1,65 @@
+﻿@page "/orders"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Web.Client.Models
+@using Web.Services
+
+@attribute [Authorize]
+
+@rendermode InteractiveServer
+@attribute [StreamRendering]
+
+<h2>Orders of user</h2>
+@if (Orders.Count > 0)
+{
+    foreach (var order in Orders)
+    {
+        <table class="table table-striped table-hover">
+            <thead>
+            <tr>
+                <th scope="col">Created at</th>
+                <th scope="col">Total cost</th>
+                <th scope="col">Actions</th>
+            </tr>
+            </thead>
+            <tbody class="table-group-divider">
+            <tr>
+                <td>@order.CreatedAt</td>
+                <td>@order.TotalCost</td>
+                <td>
+                    <button class="btn btn-primary" @onclick="@(() => NavigateOrder(order.Id))">View</button>
+                </td>
+            </tr>
+            </tbody>
+        </table> 
+    }
+}
+
+@inject UserManager<ApplicationUser> UserManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+@inject UserService UserService
+@inject NavigationManager navigationManager
+@inject OrderService OrderService
+    
+@code {
+    private ApplicationUser? user;
+    private AuthenticationState? authenticationState;
+    private List<Order> Orders = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        authenticationState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var stateUser = await UserManager.GetUserAsync(authenticationState.User);
+        user = await UserService.GetApplicationUser(stateUser);
+        Orders = await OrderService.GetOrdersFromUser(user.Id);
+        
+        await base.OnInitializedAsync();
+    }
+
+    private void NavigateOrder(string orderId)
+    {
+        navigationManager.NavigateTo($"order/{orderId}");
+    }
+
+}
